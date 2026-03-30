@@ -87,10 +87,10 @@ extension TreeSitterClient {
         cursor: QueryCursor,
         includedRange: NSRange
     ) -> [HighlightRange] {
-        guard let readCallback else { return [] }
+        guard let textProvider = cachedReadCallback ?? readCallback else { return [] }
         var ranges: [NSRange: Int] = [:]
         return cursor
-            .resolve(with: .init(textProvider: readCallback)) // Resolve our cursor against the query
+            .resolve(with: .init(textProvider: textProvider)) // Resolve our cursor against the query
             .flatMap { $0.captures }
             .reversed() // SwiftTreeSitter returns captures in the reverse order of what we need to filter with.
             .compactMap { capture in

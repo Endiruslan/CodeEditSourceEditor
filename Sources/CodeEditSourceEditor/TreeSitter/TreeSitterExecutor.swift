@@ -96,8 +96,24 @@ final package class TreeSitterExecutor {
         defer { lock.unlock() }
         let id = UUID()
         let task = Task(priority: .userInitiated) { // __This executes outside the outer lock's control__
+            // Fast path: if we can execute immediately, do so without any delay
+            if self.lock.withLock({ canTaskExec(id: id, priority: priority) }) {
+                guard !Task.isCancelled else {
+                    removeTask(id)
+                    onCancel()
+                    return
+                }
+                operation()
+                if Task.isCancelled {
+                    onCancel()
+                }
+                removeTask(id)
+                return
+            }
+
+            // Slow path: need to wait for our turn
             while self.lock.withLock({ !canTaskExec(id: id, priority: priority) }) {
-                // Instead of yielding, sleeping frees up the CPU due to time off the CPU and less lock contention
+                // Use a shorter initial check, then back off
                 try? await Task.sleep(for: TreeSitterClient.Constants.taskSleepDuration)
                 guard !Task.isCancelled else {
                     removeTask(id)
@@ -142,16 +158,22 @@ final package class TreeSitterExecutor {
     }
 
     /// Allow concurrent ``TreeSitterExecutor/Priority/access`` operations to run. Thread safe.
+    /// Access operations can run concurrently with each other, but not with edit/reset operations.
     private func canTaskExec(id: UUID, priority: Priority) -> Bool {
+        // Non-access operations must wait for their turn (first in queue)
         if priority != .access {
             return queuedTasks.first?.id == id
         }
 
+        // Access operations can run concurrently, unless there's a higher priority operation pending
         for task in queuedTasks {
             if task.priority != .access {
+                // There's a non-access operation in the queue, access operations must wait
                 return false
-            } else {
-                return task.id == id
+            }
+            if task.id == id {
+                // We found ourselves before any blocking operation
+                return true
             }
         }
         assertionFailure("Task asking if it can exec but it's not in the queue.")

@@ -10,6 +10,7 @@ import CodeEditTextView
 import CodeEditLanguages
 import SwiftTreeSitter
 import OSLog
+import AppKit
 
 /// # TreeSitterClient
 ///
@@ -40,6 +41,11 @@ public final class TreeSitterClient: HighlightProviding {
 
     /// A callback used to fetch text for queries.
     var readCallback: SwiftTreeSitter.Predicate.TextProvider?
+
+    /// A cached read callback built from an immutable text snapshot taken during setUp.
+    /// Used for initial highlight queries to avoid main-thread synchronization.
+    /// Cleared on first edit when the snapshot becomes stale.
+    internal var cachedReadCallback: SwiftTreeSitter.Predicate.TextProvider?
 
     /// The internal tree-sitter layer tree object.
     var state: TreeSitterState?
@@ -78,6 +84,15 @@ public final class TreeSitterClient: HighlightProviding {
         /// The maximum length a document can be before all queries and edits must be processed asynchronously.
         public static var maxSyncContentLength: Int = 1_000_000
 
+        /// The maximum document length that will be parsed synchronously during initial setup.
+        /// Documents at or below this length are parsed on the main thread during setUp for instant highlights.
+        public static var maxSyncInitialParseLength: Int = 500_000
+
+        /// The maximum document length for which an NSString snapshot is taken during initial setup.
+        /// Documents above maxSyncInitialParseLength but at or below this are parsed asynchronously
+        /// using a snapshot to avoid main-thread contention.
+        public static var maxSnapshotParseLength: Int = 1_000_000
+
         /// The maximum length a query can be before it must be performed asynchronously.
         public static var maxSyncQueryLength: Int = 4096
 
@@ -104,6 +119,40 @@ public final class TreeSitterClient: HighlightProviding {
         public static let taskSleepDuration: Duration = .milliseconds(10)
     }
 
+    // MARK: - Snapshot Helpers
+
+    /// Creates read callbacks from a text snapshot taken on the current (main) thread.
+    ///
+    /// Since ``NSTextStorage`` is backed by an ``NSMutableString``, any snapshot copy is O(n).
+    /// The benefit is that the closures returned here never call ``DispatchQueue.main.sync``,
+    /// so long background parses don't block the main thread at all during initial setup.
+    ///
+    /// - Parameter textContent: An immutable copy of the document text taken on the main thread.
+    /// - Returns: A tuple of (readBlock, readCallback) backed by the snapshot.
+    private static func makeSnapshotCallbacks(
+        from textContent: String
+    ) -> (readBlock: Parser.ReadBlock, readCallback: SwiftTreeSitter.Predicate.TextProvider) {
+        let utf16 = textContent.utf16
+        let utf16Count = utf16.count
+
+        let readBlock: Parser.ReadBlock = { byteOffset, _ in
+            let location = byteOffset / 2
+            let end = min(location + Constants.charsToReadInBlock, utf16Count)
+            guard location < end else { return nil }
+            let startIdx = utf16.index(utf16.startIndex, offsetBy: location)
+            let endIdx = utf16.index(utf16.startIndex, offsetBy: end)
+            return String(utf16[startIdx..<endIdx])?.data(using: String.nativeUTF16Encoding)
+        }
+        let readCallback: SwiftTreeSitter.Predicate.TextProvider = { range, _ in
+            guard range.location >= 0,
+                  range.location + range.length <= utf16Count else { return nil }
+            let startIdx = utf16.index(utf16.startIndex, offsetBy: range.location)
+            let endIdx = utf16.index(utf16.startIndex, offsetBy: range.location + range.length)
+            return String(utf16[startIdx..<endIdx])
+        }
+        return (readBlock, readCallback)
+    }
+
     // MARK: - HighlightProviding
 
     /// Set up the client with a text view and language.
@@ -114,24 +163,54 @@ public final class TreeSitterClient: HighlightProviding {
     public func setUp(textView: TextView, codeLanguage: CodeLanguage) {
         Self.logger.debug("TreeSitterClient setting up with language: \(codeLanguage.id.rawValue, privacy: .public)")
 
-        let readBlock = textView.createReadBlock()
-        let readCallback = textView.createReadCallback()
-        self.readBlock = readBlock
-        self.readCallback = readCallback
-
-        let operation = { [weak self] in
-            let state = TreeSitterState(
-                codeLanguage: codeLanguage,
-                readCallback: readCallback,
-                readBlock: readBlock
-            )
-            self?.state = state
-        }
+        let liveReadBlock = textView.createReadBlock()
+        let liveReadCallback = textView.createReadCallback()
+        self.readBlock = liveReadBlock
+        self.readCallback = liveReadCallback
+        self.cachedReadCallback = nil
 
         executor.cancelAll(below: .all)
-        if forceSyncOperation {
-            executor.execSync(operation)
+
+        let documentLength = textView.documentRange.length
+
+        if documentLength <= Constants.maxSyncInitialParseLength || forceSyncOperation {
+            // Small documents: parse synchronously on the main thread.
+            // Highlights are queryable immediately — no flash.
+            let state = TreeSitterState(
+                codeLanguage: codeLanguage,
+                readCallback: liveReadCallback,
+                readBlock: liveReadBlock
+            )
+            self.state = state
+            print("USING SYNC PARSE")
+        } else if documentLength <= Constants.maxSnapshotParseLength {
+            // Medium documents: parse asynchronously using a text snapshot taken on the main thread.
+            // The O(n) copy happens once here; the background parse then runs at full speed with
+            // no DispatchQueue.main.sync round-trips per read block call.
+            let snapshot = Self.makeSnapshotCallbacks(from: textView.string)
+            self.cachedReadCallback = snapshot.readCallback
+
+            let operation = { [weak self] in
+                let state = TreeSitterState(
+                    codeLanguage: codeLanguage,
+                    readCallback: snapshot.readCallback,
+                    readBlock: snapshot.readBlock
+                )
+                self?.state = state
+            }
+            print("USING SNAPSHOT PARSE")
+            executor.execAsync(priority: .reset, operation: operation, onCancel: {})
         } else {
+            // Large documents: parse asynchronously with live read blocks.
+            let operation = { [weak self] in
+                let state = TreeSitterState(
+                    codeLanguage: codeLanguage,
+                    readCallback: liveReadCallback,
+                    readBlock: liveReadBlock
+                )
+                self?.state = state
+            }
+            print("USING PURE ASYNC PARSE")
             executor.execAsync(priority: .reset, operation: operation, onCancel: {})
         }
     }
@@ -151,6 +230,9 @@ public final class TreeSitterClient: HighlightProviding {
         delta: Int,
         completion: @escaping @MainActor (Result<IndexSet, Error>) -> Void
     ) {
+        // Clear cached callback on first edit - the snapshot text is now stale.
+        self.cachedReadCallback = nil
+
         let oldEndPoint: Point = self.oldEndPoint ?? textView.pointForLocation(range.max) ?? .zero
         guard let edit = InputEdit(range: range, delta: delta, oldEndPoint: oldEndPoint, textView: textView) else {
             completion(.failure(TreeSitterClientError.invalidEdit))

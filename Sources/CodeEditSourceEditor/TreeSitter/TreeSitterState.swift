@@ -80,6 +80,8 @@ public final class TreeSitterState {
         layers[0].parser.timeout = 0.0
         layers[0].tree = layers[0].parser.parse(tree: nil as Tree?, readBlock: readBlock)
 
+        guard layers[0].tree != nil else { return }
+
         var layerSet = Set<LanguageLayer>(arrayLiteral: layers[0])
         var touchedLayers = Set<LanguageLayer>()
 
