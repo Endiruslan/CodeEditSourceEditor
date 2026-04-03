@@ -282,12 +282,24 @@ public class GutterView: NSView {
             }
         }
 
+        // IndexSet.intersects uses half-open ranges, so a cursor positioned exactly at
+        // textView.length (end of file) never intersects any line — both the zero-length
+        // trailing line (file ends with \n) and the last non-empty line (no trailing \n)
+        // fail the check. Resolve the correct line once up front so we can match by ID
+        // in the loop without accidentally highlighting an adjacent line that shares the
+        // same boundary offset.
+        let eofLineID: UUID? = selectionRangeMap.contains(textView.length)
+            ? textView.layoutManager.textLineForOffset(textView.length)?.data.id
+            : nil
+
         context.saveGState()
         context.clip(to: dirtyRect)
 
         context.textMatrix = CGAffineTransform(scaleX: 1, y: -1)
         for linePosition in textView.layoutManager.linesStartingAt(dirtyRect.minY, until: dirtyRect.maxY) {
-            if selectionRangeMap.intersects(integersIn: linePosition.range) {
+            let isSelected = selectionRangeMap.intersects(integersIn: linePosition.range)
+                || linePosition.data.id == eofLineID
+            if isSelected {
                 attributes[.foregroundColor] = selectedLineTextColor ?? textColor
             } else {
                 attributes[.foregroundColor] = textColor
