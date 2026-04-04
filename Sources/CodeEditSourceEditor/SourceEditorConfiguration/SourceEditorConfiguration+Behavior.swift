@@ -50,6 +50,7 @@ extension SourceEditorConfiguration {
 
             if oldConfig?.indentOption != indentOption {
                 controller.setUpTextFormation()
+                controller.invisibleCharactersCoordinator.indentOption = indentOption
             }
 
             if oldConfig?.reformatAtColumn != reformatAtColumn {

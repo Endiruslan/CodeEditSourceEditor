@@ -87,6 +87,7 @@ extension SourceEditorConfiguration {
                 controller.textView.font = font
                 controller.textView.typingAttributes = controller.attributesFor(nil)
                 controller.gutterView.font = font.rulerFont
+                controller.invisibleCharactersCoordinator.font = font
                 needsHighlighterInvalidation = true
             }
 
@@ -170,6 +171,7 @@ extension SourceEditorConfiguration {
             controller.minimapView.setTheme(theme)
             controller.reformattingGuideView?.theme = theme
             controller.textView.typingAttributes = controller.attributesFor(nil)
+            controller.invisibleCharactersCoordinator.theme = theme
         }
 
         /// Finds the preferred use theme background.
