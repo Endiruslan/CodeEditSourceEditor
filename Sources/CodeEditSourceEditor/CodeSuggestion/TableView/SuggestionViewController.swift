@@ -287,10 +287,11 @@ class SuggestionViewController: NSViewController {
     func applySelectedItem() {
         let row = tableView.selectedRow
         guard row >= 0, row < model?.items.count ?? 0 else {
+            windowController?.close()
             return
         }
         if let model {
-            model.applySelectedItem(item: model.items[tableView.selectedRow], window: view.window)
+            model.applySelectedItem(item: model.items[tableView.selectedRow])
         }
         windowController?.close()
     }

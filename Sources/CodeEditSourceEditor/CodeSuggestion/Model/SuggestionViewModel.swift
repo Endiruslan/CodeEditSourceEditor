@@ -97,7 +97,7 @@ final class SuggestionViewModel: ObservableObject {
         delegate?.completionWindowDidSelect(item: item)
     }
 
-    func applySelectedItem(item: CodeSuggestionEntry, window: NSWindow?) {
+    func applySelectedItem(item: CodeSuggestionEntry) {
         guard let activeTextView else {
             return
         }
@@ -106,7 +106,6 @@ final class SuggestionViewModel: ObservableObject {
             textView: activeTextView,
             cursorPosition: activeTextView.cursorPositions.first
         )
-        window?.close()
     }
 
     func willClose() {
