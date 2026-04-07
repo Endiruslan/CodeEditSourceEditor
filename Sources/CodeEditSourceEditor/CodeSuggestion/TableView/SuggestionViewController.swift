@@ -292,6 +292,7 @@ class SuggestionViewController: NSViewController {
         if let model {
             model.applySelectedItem(item: model.items[tableView.selectedRow], window: view.window)
         }
+        windowController?.close()
     }
 }
 

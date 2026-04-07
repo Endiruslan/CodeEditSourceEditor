@@ -141,8 +141,14 @@ extension HighlightProviderState {
             switch result {
             case .success(let invalidSet):
                 let modifiedRange = NSRange(location: range.location, length: range.length + delta)
-                // Make sure we add in the edited range too
-                self?.invalidate(invalidSet.union(IndexSet(integersIn: modifiedRange)))
+                var combined = invalidSet.union(IndexSet(integersIn: modifiedRange))
+                // Also invalidate all visible text before the edit point. Tree-sitter may re-parse
+                // earlier tokens (e.g. a keyword becomes recognized when a statement is completed).
+                if let visibleSet = self?.visibleSet {
+                    let beforeEdit = visibleSet.intersection(IndexSet(integersIn: 0..<modifiedRange.upperBound))
+                    combined.formUnion(beforeEdit)
+                }
+                self?.invalidate(combined)
             case .failure(let error):
                 if case HighlightProvidingError.operationCancelled = error {
                     self?.invalidate(IndexSet(integersIn: range))
