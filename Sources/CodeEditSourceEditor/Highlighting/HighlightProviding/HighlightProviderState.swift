@@ -141,13 +141,12 @@ extension HighlightProviderState {
             switch result {
             case .success(let invalidSet):
                 let modifiedRange = NSRange(location: range.location, length: range.length + delta)
+                NSLog("[Highlight] edit at \(range) delta=\(delta) invalidSet=\(invalidSet.count) ranges, visibleSet=\(self?.visibleSet.count ?? 0)")
+                // Invalidate the entire visible set — context-dependent grammars can change
+                // any visible token when edits happen anywhere in the document.
                 var combined = invalidSet.union(IndexSet(integersIn: modifiedRange))
-                // Also invalidate visible text before the edit point. Tree-sitter context-dependent
-                // grammars (SQL, etc.) may re-classify tokens above when a statement changes.
-                let beforeEdit = IndexSet(integersIn: 0..<modifiedRange.upperBound)
-                combined.formUnion(beforeEdit.intersection(self?.visibleSet ?? IndexSet()))
-                // Clear pending status for these ranges so they're re-queried.
-                self?.pendingSet.subtract(beforeEdit)
+                combined.formUnion(self?.visibleSet ?? IndexSet())
+                self?.pendingSet.removeAll()
                 self?.invalidate(combined)
             case .failure(let error):
                 if case HighlightProvidingError.operationCancelled = error {

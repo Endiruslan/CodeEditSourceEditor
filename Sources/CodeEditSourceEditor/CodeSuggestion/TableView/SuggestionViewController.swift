@@ -122,9 +122,10 @@ class SuggestionViewController: NSViewController {
     }
 
     private func checkKeyDownEvents(_ event: NSEvent) -> NSEvent? {
+        NSLog("[Suggestion] keyDown keyCode=\(event.keyCode)")
         switch event.keyCode {
         case 53: // Escape
-            windowController?.close()
+            SuggestionController.shared.close()
             return nil
 
         case 125, 126:  // Down/Up Arrow
@@ -286,14 +287,17 @@ class SuggestionViewController: NSViewController {
 
     func applySelectedItem() {
         let row = tableView.selectedRow
+        NSLog("[Suggestion] applySelectedItem row=\(row) items=\(model?.items.count ?? 0) wc=\(windowController != nil)")
         guard row >= 0, row < model?.items.count ?? 0 else {
-            windowController?.close()
+            NSLog("[Suggestion] invalid row, closing")
+            SuggestionController.shared.close()
             return
         }
         if let model {
             model.applySelectedItem(item: model.items[tableView.selectedRow])
         }
-        windowController?.close()
+        NSLog("[Suggestion] closing via shared controller")
+        SuggestionController.shared.close()
     }
 }
 
