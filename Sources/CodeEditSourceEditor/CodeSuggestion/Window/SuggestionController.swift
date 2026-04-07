@@ -131,13 +131,6 @@ public final class SuggestionController: NSWindowController {
 
     /// Close the window
     public override func close() {
-        model.willClose()
-
-        if let existingObserver = windowResignObserver {
-            NotificationCenter.default.removeObserver(existingObserver)
-            windowResignObserver = nil
-        }
-
         if popover != nil {
             popover?.close()
             popover = nil
@@ -145,7 +138,19 @@ public final class SuggestionController: NSWindowController {
             contentViewController?.viewWillDisappear()
         }
 
-        super.close()
+        if let existingObserver = windowResignObserver {
+            NotificationCenter.default.removeObserver(existingObserver)
+            windowResignObserver = nil
+        }
+
+        // Explicitly remove from parent and hide. super.close() alone doesn't always
+        // hide child windows reliably.
+        if let window = window {
+            window.parent?.removeChildWindow(window)
+            window.orderOut(nil)
+        }
+
+        model.willClose()
     }
 
     // MARK: - Cursors Updated
