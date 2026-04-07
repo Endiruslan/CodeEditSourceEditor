@@ -84,7 +84,7 @@ extension SuggestionController {
     static func makeWindow() -> NSWindow {
         let window = NSWindow(
             contentRect: .zero,
-            styleMask: [.resizable, .fullSizeContentView, .nonactivatingPanel, .utilityWindow],
+            styleMask: [.resizable, .fullSizeContentView, .borderless],
             backing: .buffered,
             defer: false
         )
@@ -97,7 +97,9 @@ extension SuggestionController {
         window.hasShadow = true
         window.isOpaque = false
         window.tabbingMode = .disallowed
-        window.hidesOnDeactivate = true
+        window.hidesOnDeactivate = false
+        window.canHide = false
+        window.acceptsMouseMovedEvents = true
         window.backgroundColor = .clear
 
         return window
