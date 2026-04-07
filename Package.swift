@@ -14,10 +14,10 @@ let package = Package(
         )
     ],
     dependencies: [
-        // A fast, efficient, text view for code.
+        // A fast, efficient, text view for code (our fork with scroll flicker fix).
         .package(
-            url: "https://github.com/CodeEditApp/CodeEditTextView.git",
-            from: "0.12.1"
+            url: "https://github.com/Endiruslan/CodeEditTextView.git",
+            branch: "main"
         ),
         // tree-sitter languages
         .package(
